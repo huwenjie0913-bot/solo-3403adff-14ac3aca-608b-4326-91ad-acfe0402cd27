@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>日晷刻度盘设计与校核</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <h1>日晷刻度盘</h1>
+
+    <section class="blk">
+      <h2>盘面类型</h2>
+      <div class="presets">
+        <button data-preset="horizontal">水平式</button>
+        <button data-preset="vsouth">垂直·朝南</button>
+        <button data-preset="vnorth">垂直·朝北</button>
+        <button data-preset="veast">垂直·朝东</button>
+        <button data-preset="vwest">垂直·朝西</button>
+        <button data-preset="equatorial">赤道式</button>
+        <button data-preset="custom">任意倾斜</button>
+      </div>
+    </section>
+
+    <section class="blk">
+      <h2>地点与时区</h2>
+      <label>纬度 φ（°，北纬正）<input type="number" id="lat" step="0.0001" min="-90" max="90"></label>
+      <label>经度 λ（°，东经正）<input type="number" id="lng" step="0.0001" min="-180" max="180"></label>
+      <label>标准时区（UTC 小时）<input type="number" id="tz" step="0.5" min="-12" max="14"></label>
+      <label>自定夏令时偏移（小时）<input type="number" id="dst" step="0.5" min="0" max="3" value="0"></label>
+    </section>
+
+    <section class="blk">
+      <h2>盘面与晷针</h2>
+      <label>盘面方位（°，正南 0 / 西为正）<input type="number" id="az" step="0.5" min="-180" max="180"></label>
+      <label>盘面倾角（°，水平 0 / 垂直 90）<input type="number" id="inc" step="0.5" min="0" max="180"></label>
+      <div class="row2">
+        <label>盘宽 (mm)<input type="number" id="width" step="1" min="20"></label>
+        <label>盘高 (mm)<input type="number" id="height" step="1" min="20"></label>
+      </div>
+      <label>晷针（极边）长度 L (mm)<input type="number" id="style_len" step="0.5" min="1"></label>
+      <label>最小加工间距 (mm)<input type="number" id="min_spacing" step="0.1" min="0.1" value="2"></label>
+      <label>刻度步进
+        <select id="hour_step">
+          <option value="60">整时</option>
+          <option value="30">半小时</option>
+          <option value="15">一刻钟</option>
+          <option value="10">10 分钟</option>
+          <option value="5">5 分钟</option>
+        </select>
+      </label>
+      <label>节气年份<input type="number" id="year" min="1900" max="2100" value="2026"></label>
+    </section>
+
+    <section class="blk">
+      <h2>阴影预览</h2>
+      <div class="mode-toggle">
+        <button id="modeSolar" class="active">真太阳时</button>
+        <button id="modeCivil">民用时</button>
+      </div>
+      <div class="slider-row">
+        <span>日期</span><input type="range" id="dateSlider" min="0" max="364" step="1">
+        <b id="dateLabel">—</b>
+      </div>
+      <div class="slider-row">
+        <span>时间</span><input type="range" id="timeSlider" min="0" max="1439" step="1">
+        <b id="timeLabel">—</b>
+      </div>
+      <div id="previewInfo" class="info"></div>
+    </section>
+
+    <section class="blk">
+      <h2>版本</h2>
+      <div class="row2">
+        <input type="text" id="designName" placeholder="版本名称，如：阳台水平盘 v2">
+        <button id="saveBtn">保存</button>
+      </div>
+      <select id="designSelect" size="4"></select>
+      <div class="row2">
+        <button id="loadBtn">载入所选</button>
+        <button id="delBtn">删除</button>
+      </div>
+      <div class="row2">
+        <button id="diffBtn">比较两个版本…</button>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button id="exportBtn" class="primary">导出可打印 SVG</button>
+    </div>
+    <p class="foot">全部计算与数据均保存在本机，不调用任何地图或天文网络服务。</p>
+  </aside>
+
+  <main id="stage">
+    <div id="toolbar">
+      <button id="zoomIn">＋</button>
+      <button id="zoomOut">－</button>
+      <button id="zoomFit">适合窗口</button>
+      <button id="toggleEnvelope" class="active">全年轨迹</button>
+      <button id="toggleDates" class="active">节气线</button>
+      <button id="toggleCivil">民用时刻线</button>
+      <span id="status" class="status"></span>
+    </div>
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="hint" class="hint">拖动平移 · 滚轮缩放 · 点击右侧警告可定位到问题刻线</div>
+  </main>
+
+  <aside id="side">
+    <section class="blk">
+      <h2>校核提示 <span id="warnCount" class="badge"></span></h2>
+      <ul id="warnings"></ul>
+    </section>
+    <section class="blk">
+      <h2>安装参数</h2>
+      <div id="installInfo" class="info"></div>
+    </section>
+    <section class="blk">
+      <h2>均时差与经度修正</h2>
+      <svg id="eotChart" viewBox="0 0 260 90"></svg>
+      <div id="eotInfo" class="info small"></div>
+    </section>
+    <section class="blk" id="diffBox" style="display:none">
+      <h2>版本比较</h2>
+      <div id="diffContent"></div>
+      <button id="diffClose">关闭比较</button>
+    </section>
+  </aside>
+</div>
+<script src="js/app.js"></script>
+</body>
+</html>
