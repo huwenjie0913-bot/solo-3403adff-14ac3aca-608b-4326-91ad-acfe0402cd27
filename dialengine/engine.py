@@ -208,7 +208,9 @@ def compute_dial(p, year=datetime.now().year):
                   p_used[2] - dw * n[2]))  # 盘面投影 = 副法线方向
     substyle_ang = math.degrees(math.atan2(_dot(wvec, u), _dot(wvec, v)))
     polar_elev = math.degrees(math.asin(max(-1, min(1, p_used[2]))))
-    polar_az_s = math.degrees(math.atan2(-p_used[0], p_used[1]))
+    # 方位角同样为南起西正：南 0、西 +90、北 ±180、东 -90。
+    # 西向分量 = -E，南向分量 = -N，故 atan2(-E, -N)。
+    polar_az_s = math.degrees(math.atan2(-p_used[0], -p_used[1]))
     tip3 = (L * p_used[0], L * p_used[1], L * p_used[2])
     tip_uv = to_uv(tip3, u, v)
 
@@ -466,6 +468,158 @@ def _fmt_hour(t):
     hh = int(t)
     mm = int(round((t - hh) * 60))
     return "%02d:%02d" % (hh, mm)
+
+
+def _ang_diff_deg(a, b):
+    """两方向角之差（度），归一化到 [-180, 180]。"""
+    d = (a - b + 180.0) % 360.0 - 180.0
+    return d
+
+
+def geometry_diff(data_a, data_b):
+    """比较两次 compute_dial 结果的实际刻线几何。
+
+    返回：
+      gnomon  — 晷针安装几何对照（极边仰角/方位/与盘夹角/副法线角）
+      rays    — 按真太阳时配对的时线：盘面方向角、盘边端点、分日内端点
+      dates   — 按赤纬配对的节气日期线：端点与最大形偏
+    """
+    ga, gb = data_a["gnomon"], data_b["gnomon"]
+    gnomon = []
+    g_fields = [
+        ("style_angle_deg", "晷针与盘面夹角 (°)", 0.01),
+        ("substyle_angle_deg", "副法线角 (°)", 0.01),
+        ("polar_elev_deg", "极边仰角 (°)", 0.01),
+        ("polar_az_south_deg", "极边方位·南起西正 (°)", 0.01),
+        ("length", "晷针长度 (mm)", 0.01),
+    ]
+    for key, label, tol in g_fields:
+        va, vb = ga.get(key), gb.get(key)
+        gnomon.append({
+            "label": label, "a": round(va, 3) if va is not None else None,
+            "b": round(vb, 3) if vb is not None else None,
+            "delta": round(vb - va, 3),
+            "changed": abs(vb - va) > tol,
+        })
+
+    # 时线按 time_h 配对
+    ra = {round(r["time_h"], 3): r for r in data_a["rays"]}
+    rb = {round(r["time_h"], 3): r for r in data_b["rays"]}
+    times = sorted(set(ra) | set(rb))
+    rays = []
+    max_ang = 0.0
+    max_end = 0.0
+    for t in times:
+        x, y = ra.get(t), rb.get(t)
+        row = {
+            "label": _fmt_hour(t), "major": bool(x["major"] if x else y["major"]),
+            "a": None, "b": None, "d_angle": None, "d_edge": None,
+            "d_inner": None, "present_a": x is not None, "present_b": y is not None,
+            "changed": False,
+        }
+        if x:
+            row["a"] = {"angle": x["angle_deg"],
+                        "edge": x["edge_uv"],
+                        "inner": x.get("inner_uv")}
+        if y:
+            row["b"] = {"angle": y["angle_deg"],
+                        "edge": y["edge_uv"],
+                        "inner": y.get("inner_uv")}
+        if x and y:
+            da = _ang_diff_deg(y["angle_deg"], x["angle_deg"])
+            de = math.hypot(y["edge_uv"][0] - x["edge_uv"][0],
+                            y["edge_uv"][1] - x["edge_uv"][1])
+            di = None
+            if x.get("inner_uv") and y.get("inner_uv"):
+                di = math.hypot(y["inner_uv"][0] - x["inner_uv"][0],
+                                y["inner_uv"][1] - x["inner_uv"][1])
+            row.update({"d_angle": round(da, 3), "d_edge": round(de, 2),
+                        "d_inner": round(di, 2) if di is not None else None,
+                        "changed": abs(da) > 0.01 or de > 0.5})
+            max_ang = max(max_ang, abs(da))
+            max_end = max(max_end, de)
+        rays.append(row)
+
+    # 节气线按赤纬配对（同名配对）。
+    # 原始曲线包含日出/日落附近影长发散的点，因此只在两盘“共同边界”内重采样比较，
+    # 使差异反映刻线本身（方位/倾角/晷针长），而非盘面裁切大小。
+    def curve_index(data):
+        out = {}
+        for c in data["date_curves"]:
+            name = c["name"].split(" ")[0]
+            out[(round(c["decl_deg"], 2), name)] = c
+        return out
+
+    def common_bounds(d1, d2):
+        b1, b2 = d1["plate"]["bounds"], d2["plate"]["bounds"]
+        return (max(b1["umin"], b2["umin"]),
+                min(b1["umax"], b2["umax"]),
+                max(b1["vmin"], b2["vmin"]),
+                min(b1["vmax"], b2["vmax"]))
+
+    cb = common_bounds(data_a, data_b)
+
+    def clip_curve(points, b):
+        """折线对矩形 b 的裁剪（逐点保留在矩形内的连续段），返回最长段。"""
+        segs, cur = [], []
+        for p in points:
+            if b[0] <= p[0] <= b[1] and b[2] <= p[1] <= b[3]:
+                cur.append(p)
+            else:
+                if len(cur) > 1:
+                    segs.append(cur)
+                cur = []
+        if len(cur) > 1:
+            segs.append(cur)
+        if not segs:
+            return []
+        return max(segs, key=len)
+
+    ca, cb_map = curve_index(data_a), curve_index(data_b)
+    dates = []
+    max_curve_dev = 0.0
+    for key in sorted(set(ca) | set(cb_map)):
+        x, y = ca.get(key), cb_map.get(key)
+        pa = clip_curve(x["points"], cb) if x else []
+        pb = clip_curve(y["points"], cb) if y else []
+        row = {"label": (x or y)["name"], "a": None, "b": None,
+               "d_start": None, "d_end": None, "d_max": None,
+               "present_a": x is not None, "present_b": y is not None,
+               "changed": False}
+        if x:
+            row["a"] = {"start": x["points"][0], "end": x["points"][-1],
+                        "n": len(x["points"])}
+        if y:
+            row["b"] = {"start": y["points"][0], "end": y["points"][-1],
+                        "n": len(y["points"])}
+        if pa and pb:
+            ds = math.hypot(pb[0][0] - pa[0][0], pb[0][1] - pa[0][1])
+            de = math.hypot(pb[-1][0] - pa[-1][0], pb[-1][1] - pa[-1][1])
+            dmax = 0.0
+            n = min(len(pa), len(pb))
+            for i in range(n):
+                dmax = max(dmax, math.hypot(
+                    pb[i][0] - pa[i][0], pb[i][1] - pa[i][1]))
+            row.update({"d_start": round(ds, 2), "d_end": round(de, 2),
+                        "d_max": round(dmax, 2),
+                        "changed": dmax > 0.5})
+            max_curve_dev = max(max_curve_dev, dmax)
+        dates.append(row)
+
+    return {
+        "gnomon": gnomon,
+        "rays": rays,
+        "dates": dates,
+        "common_bounds": {"umin": round(cb[0], 1), "umax": round(cb[1], 1),
+                          "vmin": round(cb[2], 1), "vmax": round(cb[3], 1)},
+        "summary": {
+            "max_angle_diff_deg": round(max_ang, 3),
+            "max_edge_diff_mm": round(max_end, 2),
+            "max_curve_diff_mm": round(max_curve_dev, 2),
+            "ray_count_a": len(data_a["rays"]),
+            "ray_count_b": len(data_b["rays"]),
+        },
+    }
 
 
 # ---------------------------------------------------------------- 瞬时预览

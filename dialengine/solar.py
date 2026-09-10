@@ -171,6 +171,7 @@ def sun_vector_enu(dt, lat, lon):
     norm = math.sqrt(e * e + n_ * n_ + up * up)
     e, n_, up = e / norm, n_ / norm, up / norm
     alt = math.asin(max(-1.0, min(1.0, up)))
-    # 方位角：自正南向西为正 = atan2(E, N)（北点 N、东点 E）
-    az = math.atan2(e, n_)
+    # 方位角：自正南向西为正（南 0、西 +90、北 ±180、东 -90）。
+    # 西向分量 = -E，南向分量 = -N，故 atan2(-E, -N)。
+    az = math.atan2(-e, -n_)
     return e, n_, up, alt, az

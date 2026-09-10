@@ -606,6 +606,53 @@
       html += `<tr class="${r.changed ? "changed" : ""}"><td>${r.label}</td><td>${r.a ?? "—"}</td><td>${r.b ?? "—"}</td></tr>`;
     }
     html += "</table>";
+
+    const g = d.geometry;
+    if (g) {
+      html += `<h3 style="font-size:12px;color:#6b4a1e;margin:10px 0 4px">晷针安装几何</h3>`;
+      html += `<table class="diff"><tr><th>项目</th><th>${d.a.name}</th><th>${d.b.name}</th><th>Δ</th></tr>`;
+      for (const r of g.gnomon) {
+        html += `<tr class="${r.changed ? "changed" : ""}"><td>${r.label}</td>` +
+          `<td>${r.a ?? "—"}</td><td>${r.b ?? "—"}</td><td>${r.delta > 0 ? "+" : ""}${r.delta}</td></tr>`;
+      }
+      html += "</table>";
+
+      const s = g.summary;
+      html += `<p class="info small" style="margin:6px 0">时线 ${s.ray_count_a} → ${s.ray_count_b} 条；` +
+        `最大方向角差 <b>${s.max_angle_diff_deg.toFixed(2)}°</b>，` +
+        `盘边端点最大位移 <b>${s.max_edge_diff_mm.toFixed(1)} mm</b>，` +
+        `节气线最大形偏 <b>${s.max_curve_diff_mm.toFixed(1)} mm</b></p>`;
+
+      html += `<h3 style="font-size:12px;color:#6b4a1e;margin:8px 0 4px">时线刻线差异（真太阳时）</h3>`;
+      html += `<table class="diff"><tr><th>时刻</th><th>角A°</th><th>角B°</th><th>Δ角°</th><th>盘边Δ mm</th><th>内端Δ mm</th></tr>`;
+      for (const r of g.rays) {
+        if (!r.major && !r.changed) continue;
+        const mark = (r.present_a && !r.present_b) ? "（B 无此线）"
+          : (!r.present_a && r.present_b) ? "（A 无此线）" : "";
+        html += `<tr class="${r.changed ? "changed" : ""}"><td>${r.label}${mark}</td>` +
+          `<td>${r.a ? r.a.angle.toFixed(2) : "—"}</td>` +
+          `<td>${r.b ? r.b.angle.toFixed(2) : "—"}</td>` +
+          `<td>${r.d_angle === null ? "—" : (r.d_angle > 0 ? "+" : "") + r.d_angle.toFixed(2)}</td>` +
+          `<td>${r.d_edge === null ? "—" : r.d_edge.toFixed(1)}</td>` +
+          `<td>${r.d_inner === null ? "—" : r.d_inner.toFixed(1)}</td></tr>`;
+      }
+      html += "</table>";
+
+      html += `<h3 style="font-size:12px;color:#6b4a1e;margin:8px 0 4px">节气日期线差异</h3>`;
+      html += `<table class="diff"><tr><th>节气线</th><th>起点Δ mm</th><th>终点Δ mm</th><th>最大形偏 mm</th></tr>`;
+      for (const r of g.dates) {
+        if (!r.changed) continue;
+        const mark = (r.present_a && !r.present_b) ? "（B 无此线）"
+          : (!r.present_a && r.present_b) ? "（A 无此线）" : "";
+        html += `<tr class="changed"><td>${r.label}${mark}</td>` +
+          `<td>${r.d_start === null ? "—" : r.d_start.toFixed(1)}</td>` +
+          `<td>${r.d_end === null ? "—" : r.d_end.toFixed(1)}</td>` +
+          `<td>${r.d_max === null ? "—" : r.d_max.toFixed(1)}</td></tr>`;
+      }
+      const changedDates = g.dates.filter((r) => r.changed).length;
+      if (!changedDates) html += `<tr><td colspan="4" style="text-align:left;color:#3b7d52">全部节气线位置一致（&lt;0.5 mm）</td></tr>`;
+      html += "</table>";
+    }
     $("diffContent").innerHTML = html;
   }
   $("diffClose").addEventListener("click", () => { $("diffBox").style.display = "none"; });

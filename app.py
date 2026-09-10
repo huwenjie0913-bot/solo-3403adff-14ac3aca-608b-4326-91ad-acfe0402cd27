@@ -126,7 +126,24 @@ def api_diff():
     d = storage.diff_designs(a, b)
     if d is None:
         return jsonify({"ok": False, "errors": ["版本不存在"]}), 404
+    # 对两版参数实际计算盘面，比较刻线几何
+    da_obj = storage.get_design(a)
+    db_obj = storage.get_design(b)
+    try:
+        pa = _with_defaults(da_obj["params"])
+        pb = _with_defaults(db_obj["params"])
+        calc_a = engine.compute_dial(pa, pa["year"])
+        calc_b = engine.compute_dial(pb, pb["year"])
+        d["geometry"] = engine.geometry_diff(calc_a, calc_b)
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"ok": False, "errors": ["几何比较失败: %s" % ex]}), 500
     return jsonify({"ok": True, "diff": d})
+
+
+def _with_defaults(p):
+    out = dict(DEFAULTS)
+    out.update(p or {})
+    return out
 
 
 @app.route("/api/export.svg", methods=["POST"])
