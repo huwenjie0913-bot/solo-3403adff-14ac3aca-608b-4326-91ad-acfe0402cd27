@@ -82,6 +82,29 @@ table.diff th, table.diff td { border: 1px solid #ddd8cf; padding: 3px 5px; text
 table.diff td:first-child, table.diff th:first-child { text-align: left; }
 table.diff tr.changed td { background: #fdf3e0; font-weight: 600; }
 
+/* 校准面板 */
+h3.sub { font-size: 12px; margin: 10px 0 6px; color: #6b4a1e; }
+.fitrow { display: grid; grid-template-columns: 78px 1fr 1fr 1fr; gap: 4px; align-items: center; margin-bottom: 4px; }
+.fitrow.fithead { font-size: 11px; color: #999; margin-bottom: 2px; }
+.fitrow input[type=number] { padding: 3px 4px; font-size: 12px; margin-top: 0; }
+.fitrow input:disabled { background: #f0ece2; color: #aaa; }
+.fitlab { display: flex; align-items: center; gap: 3px; font-size: 12px; color: #555; margin-bottom: 0; white-space: nowrap; }
+.fitlab input { margin: 0; }
+#obsList { list-style: none; margin: 6px 0; padding: 0; max-height: 180px; overflow-y: auto; }
+.obs-item { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 4px; border-bottom: 1px solid #eee7d8; }
+.obs-item.invalid .obs-txt { text-decoration: line-through; color: #aaa; }
+.obs-txt { flex: 1; font-variant-numeric: tabular-nums; }
+.obs-valid { display: flex; align-items: center; gap: 2px; font-size: 11px; color: #777; margin-bottom: 0; white-space: nowrap; }
+.obs-del { padding: 0 6px; font-size: 11px; }
+.obs-empty { font-size: 11px; color: #999; line-height: 1.5; }
+.calwarn { background: #fdf3e0; border: 1px solid #ecd9ad; border-radius: 5px; padding: 6px 8px; margin: 6px 0; font-size: 12px; line-height: 1.5; }
+.calwarn.err { background: #fbe6e2; border-color: #e8b8ae; }
+table.diff.obs td, table.diff.obs th { font-size: 11px; padding: 2px 3px; }
+table.diff tr.invalid td { color: #aaa; }
+table.diff tr.invalid td:not(:last-child) { text-decoration: line-through; }
+table.diff button { padding: 1px 6px; font-size: 11px; }
+#fitRun { margin-top: 6px; }
+
 /* SVG 内样式 */
 .plate-border { fill: #fffdf8; stroke: #222; stroke-width: .5; }
 .envelope { fill: #e8e2d4; stroke: #b8ad95; stroke-width: .25; opacity: .85; }
@@ -102,3 +125,14 @@ table.diff tr.changed td { background: #fdf3e0; font-weight: 600; }
 .gridline { stroke: #e7e1d4; stroke-width: .2; }
 .axis-label { font-size: 3.2px; fill: #999; text-anchor: middle; }
 .terminator { fill: rgba(80,80,90,.07); }
+
+/* 校准叠加（SVG 内） */
+.obs-meas { fill: #2c5d8c; stroke: #fff; stroke-width: .3; }
+.obs-meas.invalid { fill: #aaa; opacity: .55; }
+.obs-pred { fill: none; stroke: #3b7d52; stroke-width: .5; }
+.obs-arrow { stroke: #c0392b; stroke-width: .45; }
+.obs-arrow-head { fill: #c0392b; }
+.obs-cross { stroke: #8a5a2b; stroke-width: .5; }
+.cal-line { stroke: #d07a1e; stroke-width: .3; stroke-dasharray: 2.5,1.5; opacity: .9; }
+.cal-line.major { stroke-width: .55; }
+.cal-root { fill: none; stroke: #d07a1e; stroke-width: .7; }
