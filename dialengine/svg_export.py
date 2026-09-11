@@ -137,11 +137,20 @@ def generate_print_svg(params, data):
                  'fill="none" stroke="%s" stroke-width="0.8"/>'
                  % (x0, y0, x1 - x0, y1 - y0, STROK))
 
-    # 晷针根点（盘心）与极边投影
-    ox, oy = gxy(0, 0)
+    # 晷针根点与极边投影（根点可能相对盘心偏移）
+    root = g.get("root_uv", [0, 0])
+    ox, oy = gxy(root[0], root[1])
+    if abs(root[0]) > 1e-9 or abs(root[1]) > 1e-9:
+        # 根点偏移时在盘面中心画淡色十字作为参照
+        cx0, cy0 = gxy(0, 0)
+        parts.append(_line(cx0 - 2.5, cy0, cx0 + 2.5, cy0, stroke=FAINT,
+                           **{"stroke-width": 0.3}))
+        parts.append(_line(cx0, cy0 - 2.5, cx0, cy0 + 2.5, stroke=FAINT,
+                           **{"stroke-width": 0.3}))
     parts.append('<circle cx="%.2f" cy="%.2f" r="1.6" fill="%s"/>' % (ox, oy, STROK))
     sub = g["substyle_angle_deg"]
-    lx, ly = gxy(10 * math.sin(math.radians(sub)), 10 * math.cos(math.radians(sub)))
+    lx, ly = gxy(root[0] + 10 * math.sin(math.radians(sub)),
+                 root[1] + 10 * math.cos(math.radians(sub)))
     parts.append(_line(ox, oy, lx, ly, stroke="#1f6f4a", **{"stroke-width": 0.9}))
 
     parts.append('</g>')
@@ -178,6 +187,8 @@ def generate_print_svg(params, data):
         ("晷针方位（南起西正）：%.2f°" % g["polar_az_south_deg"], 3.0, "normal"),
         ("副法线方向（自盘面上方向右）：%.2f°" % g["substyle_angle_deg"], 3.0, "normal"),
         ("晷针长度 L = %g mm" % m["style_len"], 3.0, "normal"),
+        ("晷针根点偏移：u %+g mm，v %+g mm（相对盘面中心）"
+         % (m.get("root_du", 0), m.get("root_dv", 0)), 3.0, "normal"),
         ("", 1.5, "normal"),
         ("【地点参数】", 3.6, "bold"),
         ("纬度 %g°  经度 %g°" % (m["lat"], m["lng"]), 3.0, "normal"),

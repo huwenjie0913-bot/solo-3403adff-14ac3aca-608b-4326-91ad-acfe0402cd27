@@ -41,6 +41,10 @@
         <label>盘高 (mm)<input type="number" id="height" step="1" min="20"></label>
       </div>
       <label>晷针（极边）长度 L (mm)<input type="number" id="style_len" step="0.5" min="1"></label>
+      <div class="row2">
+        <label>根点偏移 u (mm)<input type="number" id="root_du" step="0.5" value="0"></label>
+        <label>根点偏移 v (mm)<input type="number" id="root_dv" step="0.5" value="0"></label>
+      </div>
       <label>最小加工间距 (mm)<input type="number" id="min_spacing" step="0.1" min="0.1" value="2"></label>
       <label>刻度步进
         <select id="hour_step">
@@ -87,6 +91,41 @@
       </div>
     </section>
 
+    <section class="blk" id="calSection">
+      <h2>现场校准</h2>
+      <div id="calNoDesign" class="info small">载入或保存一个设计版本后，可基于该版本建立校准批次，用现场实测影端反算安装参数。</div>
+      <div id="calMain" style="display:none">
+        <div class="row2">
+          <input type="text" id="calBatchName" placeholder="新批次名称，如：安装后首日">
+          <button id="calNewBatch">新建批次</button>
+        </div>
+        <div class="row2">
+          <select id="calBatchSelect" size="2"></select>
+          <button id="calDelBatch">删除批次</button>
+        </div>
+        <div id="calBatchInfo" class="info small"></div>
+        <div id="calObsBlock" style="display:none">
+          <h3 class="sub">观测记录（民用时间 + 实测影端）</h3>
+          <label>民用日期时间<input type="datetime-local" id="obsDt" step="60"></label>
+          <div class="row2">
+            <label>影端 u (mm)<input type="number" id="obsU" step="0.1"></label>
+            <label>影端 v (mm)<input type="number" id="obsV" step="0.1"></label>
+          </div>
+          <div class="row2">
+            <button id="obsPick">盘面取点</button>
+            <button id="obsAdd">添加记录</button>
+          </div>
+          <ul id="obsList"></ul>
+          <h3 class="sub">反算参数与搜索范围</h3>
+          <div class="fitrow fithead">
+            <span>参数</span><span>下限</span><span>上限</span><span>锁定值</span>
+          </div>
+          <div id="fitCfg"></div>
+          <button id="fitRun" class="primary">开始反算</button>
+        </div>
+      </div>
+    </section>
+
     <div class="actions">
       <button id="exportBtn" class="primary">导出可打印 SVG</button>
     </div>
@@ -101,6 +140,8 @@
       <button id="toggleEnvelope" class="active">全年轨迹</button>
       <button id="toggleDates" class="active">节气线</button>
       <button id="toggleCivil">民用时刻线</button>
+      <button id="toggleCal">校准叠加</button>
+      <button id="toggleCorrected">校正后盘面</button>
       <span id="status" class="status"></span>
     </div>
     <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
@@ -125,6 +166,15 @@
       <h2>版本比较</h2>
       <div id="diffContent"></div>
       <button id="diffClose">关闭比较</button>
+    </section>
+    <section class="blk" id="calBox" style="display:none">
+      <h2>校准结果</h2>
+      <div id="calContent"></div>
+      <div class="row2">
+        <button id="calApply">保存为修正版本</button>
+        <button id="calReport">导出校准报告</button>
+      </div>
+      <button id="calClose">关闭结果</button>
     </section>
   </aside>
 </div>

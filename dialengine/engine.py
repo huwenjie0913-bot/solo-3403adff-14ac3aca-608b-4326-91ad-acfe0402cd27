@@ -7,7 +7,8 @@
 * 盘面方位角 az：晷面法向水平投影的方向，自正南向西为正（东 -90、南 0、西 +90、北 ±180，度）。
 * 盘面倾角 inc：法向与天顶的夹角（水平 0、垂直 90、仰置 90..180，度）。
 * 盘面二维坐标 (u, v)：u 指向“盘面右方”，v 指向“盘面上方”，均为毫米，原点为盘面中心
-  （也是晷针极轴边与盘面的交点）。SVG 中 x=u, y=-v。
+  （默认也是晷针极轴边与盘面的交点；可用 root_du/root_dv 指定根点相对盘心的偏移）。
+  SVG 中 x=u, y=-v。
 * 时角 H：正午为 0，下午为正（度）。真太阳时 = 12 + H/15。
 * 晷针为沿天轴方向、长度 L 的直边（极轴式晷针），自动选择向阳一侧。
 """
@@ -118,15 +119,16 @@ def in_rect(pu, pv, b, margin=0.0):
             b[2] - margin <= pv <= b[3] + margin)
 
 
-def ray_rect_edge(theta, b):
-    """从原点出发、方向角 theta（自 +v 向 +u）的射线与矩形边界的交点。"""
+def ray_rect_edge(theta, b, origin=(0.0, 0.0)):
+    """从 origin 出发、方向角 theta（自 +v 向 +u）的射线与矩形边界的交点。"""
     du, dv = math.sin(theta), math.cos(theta)
+    ou, ov = origin
     t = float("inf")
     if abs(du) > EPS:
-        t = min(t, (b[1] if du > 0 else b[0]) / du)
+        t = min(t, ((b[1] if du > 0 else b[0]) - ou) / du)
     if abs(dv) > EPS:
-        t = min(t, (b[3] if dv > 0 else b[2]) / dv)
-    return (du * t, dv * t)
+        t = min(t, ((b[3] if dv > 0 else b[2]) - ov) / dv)
+    return (ou + du * t, ov + dv * t)
 
 
 def _point_seg_dist(px, py, a, c):
@@ -192,6 +194,9 @@ def compute_dial(p, year=datetime.now().year):
     L = float(p["style_len"])
     min_gap = float(p.get("min_spacing", 2.0))
     step_min = int(p.get("hour_step", 60))
+    root_du = float(p.get("root_du", 0.0))
+    root_dv = float(p.get("root_dv", 0.0))
+    root = (root_du, root_dv)  # 晷针根点相对盘心的偏移：整个刻线图案随之平移
     latr = lat * DEG
 
     n, u, v, pole, p_used, sigma = face_frame(lat, az, inc)
@@ -212,7 +217,7 @@ def compute_dial(p, year=datetime.now().year):
     # 西向分量 = -E，南向分量 = -N，故 atan2(-E, -N)。
     polar_az_s = math.degrees(math.atan2(-p_used[0], -p_used[1]))
     tip3 = (L * p_used[0], L * p_used[1], L * p_used[2])
-    tip_uv = to_uv(tip3, u, v)
+    tip_uv = (to_uv(tip3, u, v)[0] + root_du, to_uv(tip3, u, v)[1] + root_dv)
 
     polar_degenerate = style_angle < 2.0
     if polar_degenerate:
@@ -257,7 +262,7 @@ def compute_dial(p, year=datetime.now().year):
         if theta is None:
             t += step_h
             continue
-        edge = ray_rect_edge(theta, b)
+        edge = ray_rect_edge(theta, b, root)
         rays.append({
             "label": ("%d" % int(round(t))) if major else "",
             "time_h": round(t, 3),
@@ -282,13 +287,13 @@ def compute_dial(p, year=datetime.now().year):
             s = _sun_enu(H, d, latr)
             if s[2] > 1e-4 and _dot(s, n) > 1e-4:
                 x = shadow_tip(L, p_used, n, s)
-                pu, pv = to_uv(x, u, v)
+                pu, pv = to_uv(x, u, v)  # 相对晷针根点
                 r = math.hypot(pu, pv)
                 ang = (math.atan2(pu, pv) % (2 * math.pi))
                 k = int((ang / (2 * math.pi) * NB)) % NB
                 if r > env_r[k]:
                     env_r[k] = r
-                # 归入最近时线
+                # 归入最近时线（内端点存盘面绝对坐标 = 相对根点 + 根点偏移）
                 tst_h = 12 + H / DEG / 15.0
                 idx = int(round((tst_h - 4.0) / step_h))
                 if 0 <= idx < len(rays) and r < inner_r[idx]:
@@ -296,17 +301,17 @@ def compute_dial(p, year=datetime.now().year):
                     Htarget = (4.0 + idx * step_h - 12.0) * 15.0 * DEG
                     if abs(H - Htarget) <= (step_h * 15.0 * DEG) / 2 + 1e-6:
                         inner_r[idx] = r
-                        inner_p[idx] = (pu, pv)
+                        inner_p[idx] = (pu + root_du, pv + root_dv)
             H += 1.25 * DEG  # 5 分钟
         day += 2
 
-    # 包络多边形
+    # 包络多边形（半径相对根点，输出平移到盘面绝对坐标）
     envelope = []
     for k in range(NB):
         if env_r[k] > 0:
             ang = (k + 0.5) / NB * 2 * math.pi
-            envelope.append([round(env_r[k] * math.sin(ang), 2),
-                             round(env_r[k] * math.cos(ang), 2)])
+            envelope.append([round(root_du + env_r[k] * math.sin(ang), 2),
+                             round(root_dv + env_r[k] * math.cos(ang), 2)])
 
     for i, ray in enumerate(rays):
         if inner_p[i] is not None:
@@ -323,8 +328,8 @@ def compute_dial(p, year=datetime.now().year):
         else:
             # 全年无采样：理论受光但太阳高度总不足（极少见），退化用小内半径
             theta = ray["angle_deg"] * DEG
-            ray["inner_uv"] = [round(2.0 * math.sin(theta), 2),
-                               round(2.0 * math.cos(theta), 2)]
+            ray["inner_uv"] = [round(root_du + 2.0 * math.sin(theta), 2),
+                               round(root_dv + 2.0 * math.cos(theta), 2)]
 
     # ------------------------------------------------------- 相邻刻线间距
     if len(rays) >= 2:
@@ -340,8 +345,8 @@ def compute_dial(p, year=datetime.now().year):
             if p1 is None:
                 continue
             # 自内半径起刻到盘边
-            d1 = ray_rect_edge(theta1, b)
-            d2 = ray_rect_edge(theta2, b)
+            d1 = ray_rect_edge(theta1, b, root)
+            d2 = ray_rect_edge(theta2, b, root)
             dist, mid = seg_seg_min_dist(tuple(p1), tuple(d1),
                                          tuple(c["inner_uv"]), tuple(d2),
                                          max(min_gap * 0.5, 0.5))
@@ -376,7 +381,7 @@ def compute_dial(p, year=datetime.now().year):
             if s[2] > 1e-4 and _dot(s, n) > 1e-4:
                 x = shadow_tip(L, p_used, n, s)
                 pu, pv = to_uv(x, u, v)
-                pts.append([round(pu, 2), round(pv, 2),
+                pts.append([round(pu + root_du, 2), round(pv + root_dv, 2),
                             round(math.degrees(math.asin(max(-1, min(1, s[2])))), 2)])
             H += 1.25 * DEG
         if len(pts) < 2:
@@ -435,6 +440,7 @@ def compute_dial(p, year=datetime.now().year):
             "lat": lat, "lng": lng, "tz": tz, "dst": dst,
             "az": az, "inc": inc, "width": W, "height": H,
             "style_len": L, "min_spacing": min_gap, "hour_step": step_min,
+            "root_du": root_du, "root_dv": root_dv,
             "year": year,
         },
         "plate": {"width": W, "height": H,
@@ -446,6 +452,7 @@ def compute_dial(p, year=datetime.now().year):
             "polar_elev_deg": round(polar_elev, 3),
             "polar_az_south_deg": round(polar_az_s, 3),
             "tip_uv": [round(tip_uv[0], 2), round(tip_uv[1], 2)],
+            "root_uv": [round(root_du, 3), round(root_dv, 3)],
             "sigma": sigma,
         },
         "rays": rays,
@@ -634,6 +641,9 @@ def preview_shadow(p, date_y, date_m, date_d, time_hours, mode):
     tz = float(p["tz"]); dst = float(p.get("dst", 0.0))
     az = float(p["az"]); inc = float(p["inc"])
     L = float(p["style_len"])
+    root_du = float(p.get("root_du", 0.0))
+    root_dv = float(p.get("root_dv", 0.0))
+    root = (root_du, root_dv)
     latr = lat * DEG
     n, u, v, pole, p_used, sigma = face_frame(lat, az, inc)
     offset = tz + dst
@@ -673,6 +683,7 @@ def preview_shadow(p, date_y, date_m, date_d, time_hours, mode):
         "state": "ok",
         "shadow_uv": None,
         "in_bounds": False,
+        "root_uv": [round(root_du, 3), round(root_dv, 3)],
         "civil_rays": [],
     }
 
@@ -687,8 +698,8 @@ def preview_shadow(p, date_y, date_m, date_d, time_hours, mode):
     if result["state"] == "ok":
         x = shadow_tip(L, p_used, n, s)
         pu, pv = to_uv(x, u, v)
-        result["shadow_uv"] = [round(pu, 2), round(pv, 2)]
-        result["in_bounds"] = in_rect(pu, pv, b)
+        result["shadow_uv"] = [round(pu + root_du, 2), round(pv + root_dv, 2)]
+        result["in_bounds"] = in_rect(pu + root_du, pv + root_dv, b)
 
     # 当日民用时刻线（与当前所选日期一致）
     step_min = int(p.get("hour_step", 60))
@@ -708,7 +719,7 @@ def preview_shadow(p, date_y, date_m, date_d, time_hours, mode):
                 cu, cv = to_uv(xc, u, v)
                 theta = math.atan2(cu, cv)
         if theta is not None:
-            edge = ray_rect_edge(theta, b)
+            edge = ray_rect_edge(theta, b, root)
             result["civil_rays"].append({
                 "label": "%02d:%02d" % (int(clock), int(round((clock - int(clock)) * 60))),
                 "major": int(round((clock - int(clock)) * 60)) == 0,
