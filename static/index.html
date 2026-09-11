@@ -91,6 +91,28 @@
       </div>
     </section>
 
+    <section class="blk" id="mountSection">
+      <h2>安装点遮光</h2>
+      <div id="mountNoDesign" class="info small">载入或保存一个设计版本后，可为其建立多个安装点，在方位角—高度角图上录入建筑/树木轮廓并分析全年可读时段。</div>
+      <div id="mountMain" style="display:none">
+        <div class="row2">
+          <input type="text" id="mountName" placeholder="安装点名称，如：阳台东南角">
+          <button id="mountNew">新建</button>
+        </div>
+        <select id="mountSelect" size="3"></select>
+        <div class="row2">
+          <button id="mountDup">复制所选</button>
+          <button id="mountDel">删除</button>
+        </div>
+        <div class="row2">
+          <button id="mountImport">导入 JSON</button>
+          <button id="mountExport">导出所选</button>
+        </div>
+        <input type="file" id="mountFile" accept="application/json,.json" style="display:none">
+        <div id="mountInfo" class="info small"></div>
+      </div>
+    </section>
+
     <section class="blk" id="calSection">
       <h2>现场校准</h2>
       <div id="calNoDesign" class="info small">载入或保存一个设计版本后，可基于该版本建立校准批次，用现场实测影端反算安装参数。</div>
@@ -142,9 +164,73 @@
       <button id="toggleCivil">民用时刻线</button>
       <button id="toggleCal">校准叠加</button>
       <button id="toggleCorrected">校正后盘面</button>
+      <button id="toggleShade">遮光影端轨迹</button>
+      <button id="viewSkyBtn">方位高度图 / 可读分析</button>
       <span id="status" class="status"></span>
     </div>
     <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="skyStage" style="display:none;flex:1;flex-direction:column;min-height:0">
+      <div id="skyToolbar">
+        <span id="skyTitle" class="info small"></span>
+        <span style="flex:1"></span>
+        <button id="skyAddProf">＋新轮廓</button>
+        <select id="profSelect" title="选择正在编辑的轮廓"></select>
+        <label class="skyopt">轮廓闭合
+          <select id="profClosed">
+            <option value="ground">贴地平封闭（建筑天际线）</option>
+            <option value="closed">首尾闭合多边形</option>
+            <option value="open">开放折线（树木带）</option>
+          </select>
+        </label>
+        <label class="skyopt">方位基准
+          <select id="azRef">
+            <option value="south">南起·西为正</option>
+            <option value="north">北起·顺时针</option>
+          </select>
+        </label>
+        <button id="profDel">删除轮廓</button>
+        <button id="mountSave" class="active">保存安装点</button>
+        <button id="analyzeBtn" class="primary" style="width:auto;padding:5px 12px">全年分析</button>
+      </div>
+      <div id="skySliders">
+        <span>日期</span><input type="range" id="skyDate" min="0" max="364" step="1"><b id="skyDateLab">—</b>
+        <span>民用时</span><input type="range" id="skyTime" min="0" max="1439" step="1"><b id="skyTimeLab">—</b>
+        <button id="skyBackDial">返回盘面</button>
+      </div>
+      <div style="display:flex;flex:1;min-height:0">
+        <div id="skyLeft" style="flex:1;display:flex;flex-direction:column;min-width:0">
+          <svg id="skyCanvas" xmlns="http://www.w3.org/2000/svg" style="flex:1;width:100%;background:#faf8f3;touch-action:none;cursor:crosshair"></svg>
+          <div id="skyHint" class="hint" style="position:static;transform:none;display:inline-block;align-self:center;margin-bottom:6px">
+            点击/拖拽添加样点 · 直接拖动样点修改 · 双击样点编辑备注或删除
+          </div>
+        </div>
+        <div id="skyRight">
+          <section class="blk">
+            <h2>当前时刻（滑块联动）</h2>
+            <div id="skyInstant" class="info small"></div>
+          </section>
+          <section class="blk">
+            <h2>当日不可读区间（点击定位遮挡段）</h2>
+            <div id="dayRuns"></div>
+          </section>
+          <section class="blk">
+            <h2>全年可读窗口</h2>
+            <div id="annualBox" class="info small">点击“全年分析”后展示月度可读时长。</div>
+          </section>
+          <section class="blk">
+            <h2>双安装点比较</h2>
+            <div class="row2">
+              <select id="cmpA"></select><select id="cmpB"></select>
+            </div>
+            <button id="cmpRun">并排比较月度可读时长与关键时段缺口</button>
+            <div id="cmpBox" style="margin-top:6px"></div>
+          </section>
+          <section class="blk">
+            <button id="mountReport" class="primary">导出可读分析报告 (JSON)</button>
+          </section>
+        </div>
+      </div>
+    </div>
     <div id="hint" class="hint">拖动平移 · 滚轮缩放 · 点击右侧警告可定位到问题刻线</div>
   </main>
 
@@ -179,5 +265,6 @@
   </aside>
 </div>
 <script src="js/app.js"></script>
+<script src="js/shade.js"></script>
 </body>
 </html>

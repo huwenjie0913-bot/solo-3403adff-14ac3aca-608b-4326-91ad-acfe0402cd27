@@ -4,7 +4,7 @@ import json
 
 from flask import Flask, request, jsonify, Response, send_from_directory
 
-from dialengine import engine, storage, svg_export, calibrate
+from dialengine import engine, storage, svg_export, calibrate, shade
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
@@ -160,6 +160,220 @@ def api_export_svg():
     data = engine.compute_dial(p, p["year"])
     svg = svg_export.generate_print_svg(p, data)
     return Response(svg, mimetype="image/svg+xml")
+
+
+# ---------------------------------------------------------------- 安装点与遮光分析
+
+def _load_design_params(did):
+    design = storage.get_design(did)
+    if design is None:
+        return None, None
+    return design, _with_defaults(design["params"])
+
+
+def _get_mount_or_err(mid):
+    mount = storage.get_mount(mid)
+    if mount is None:
+        return None, (jsonify({"ok": False, "errors": ["安装点不存在"]}), 404)
+    design, p = _load_design_params(mount["design_id"])
+    if p is None:
+        return None, (jsonify({"ok": False, "errors": ["所属设计版本不存在"]}), 404)
+    mount["_design"] = design
+    mount["_params"] = p
+    return mount, None
+
+
+@app.route("/api/designs/<int:did>/mounts", methods=["GET", "POST"])
+def api_mounts(did):
+    design, p = _load_design_params(did)
+    if p is None:
+        return jsonify({"ok": False, "errors": ["设计版本不存在"]}), 404
+    if request.method == "GET":
+        return jsonify({"ok": True, "mounts": storage.list_mounts(did)})
+    body = request.get_json(force=True, silent=True) or {}
+    mount, errors = shade.normalize_mount_payload(body)
+    if errors:
+        return jsonify({"ok": False, "errors": errors}), 400
+    mid = storage.save_mount(did, mount)
+    return jsonify({"ok": True, "id": mid})
+
+
+@app.route("/api/mounts/<int:mid>", methods=["GET", "PUT", "DELETE"])
+def api_mount(mid):
+    mount = storage.get_mount(mid)
+    if mount is None:
+        return jsonify({"ok": False, "errors": ["安装点不存在"]}), 404
+    if request.method == "GET":
+        return jsonify({"ok": True, "mount": mount})
+    if request.method == "DELETE":
+        storage.delete_mount(mid)
+        return jsonify({"ok": True})
+    body = request.get_json(force=True, silent=True) or {}
+    new_mount, errors = shade.normalize_mount_payload(body, existing=mount)
+    if errors:
+        return jsonify({"ok": False, "errors": errors}), 400
+    rid = storage.save_mount(mount["design_id"], new_mount, mid)
+    if rid is None:
+        return jsonify({"ok": False, "errors": ["更新失败"]}), 400
+    return jsonify({"ok": True, "id": rid})
+
+
+@app.route("/api/mounts/<int:mid>/duplicate", methods=["POST"])
+def api_mount_duplicate(mid):
+    body = request.get_json(force=True, silent=True) or {}
+    new_id = storage.duplicate_mount(mid, (body.get("name") or "").strip() or None)
+    if new_id is None:
+        return jsonify({"ok": False, "errors": ["安装点不存在"]}), 404
+    return jsonify({"ok": True, "id": new_id})
+
+
+@app.route("/api/mounts/import", methods=["POST"])
+def api_mount_import():
+    """导入一个或多个安装点 JSON：始终写入新行，不覆盖既有数据。"""
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        design_id = int(body.get("design_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "errors": ["缺少所属设计版本"]}), 400
+    _design, p = _load_design_params(design_id)
+    if p is None:
+        return jsonify({"ok": False, "errors": ["设计版本不存在"]}), 404
+    items = body.get("mounts")
+    if isinstance(items, dict):
+        items = [items]
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "errors": ["导入内容为空"]}), 400
+    ids, errors = [], []
+    for it in items:
+        mount, errs = shade.normalize_mount_payload(it)
+        errors.extend(errs)
+        if not errs:
+            ids.append(storage.save_mount(design_id, mount))
+    if not ids:
+        return jsonify({"ok": False, "errors": errors or ["无可导入的安装点"]}), 400
+    return jsonify({"ok": True, "ids": ids, "errors": errors})
+
+
+@app.route("/api/shade/instant", methods=["POST"])
+def api_shade_instant():
+    body = request.get_json(force=True, silent=True) or {}
+    mount, err = _mount_from_body(body)
+    if err:
+        return err
+    try:
+        data = shade.instant(mount["_params"], mount, int(body["year"]),
+                             int(body["month"]), int(body["day"]),
+                             float(body["hour"]))
+    except (KeyError, TypeError, ValueError) as ex:
+        return jsonify({"ok": False, "errors": ["时刻参数无效: %s" % ex]}), 400
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/shade/day", methods=["POST"])
+def api_shade_day():
+    body = request.get_json(force=True, silent=True) or {}
+    mount, err = _mount_from_body(body)
+    if err:
+        return err
+    try:
+        data = shade.day_curve(mount["_params"], mount, int(body["year"]),
+                               int(body["month"]), int(body["day"]))
+    except (KeyError, TypeError, ValueError) as ex:
+        return jsonify({"ok": False, "errors": ["日期参数无效: %s" % ex]}), 400
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/shade/arcs", methods=["POST"])
+def api_shade_arcs():
+    body = request.get_json(force=True, silent=True) or {}
+    p, errors = parse_params(body.get("params", {}))
+    if errors:
+        return jsonify({"ok": False, "errors": errors}), 400
+    try:
+        data = shade.month_arcs(p, int(body.get("year") or p["year"]))
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"ok": False, "errors": ["弧线计算失败: %s" % ex]}), 500
+    return jsonify({"ok": True, "data": data, "az_ref": body.get("az_ref", "south")})
+
+
+@app.route("/api/shade/analyze", methods=["POST"])
+def api_shade_analyze():
+    body = request.get_json(force=True, silent=True) or {}
+    mount, err = _mount_from_body(body)
+    if err:
+        return err
+    try:
+        year = int(body.get("year") or mount["_params"]["year"])
+        data = shade.analyze_year(mount["_params"], mount, year)
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"ok": False, "errors": ["全年分析失败: %s" % ex]}), 500
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/shade/compare", methods=["POST"])
+def api_shade_compare():
+    body = request.get_json(force=True, silent=True) or {}
+    ma, ea = _get_mount_or_err(int(body.get("a"))) if body.get("a") else (None, None)
+    mb, eb = _get_mount_or_err(int(body.get("b"))) if body.get("b") else (None, None)
+    if ea or eb:
+        return ea or eb
+    if ma["design_id"] != mb["design_id"]:
+        return jsonify({"ok": False,
+                        "errors": ["请选择同一设计版本下的两个安装点进行比较"]}), 400
+    try:
+        year = int(body.get("year") or ma["_params"]["year"])
+        data = shade.compare_sites(ma["_params"], ma, mb, year)
+        data["a"] = {"id": ma["id"], "name": ma["name"]}
+        data["b"] = {"id": mb["id"], "name": mb["name"]}
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"ok": False, "errors": ["比较失败: %s" % ex]}), 500
+    return jsonify({"ok": True, "data": data})
+
+
+@app.route("/api/mounts/<int:mid>/report")
+def api_mount_report(mid):
+    year = request.args.get("year", type=int)
+    mount, err = _get_mount_or_err(mid)
+    if err:
+        return err
+    try:
+        analysis = shade.analyze_year(mount["_params"], mount,
+                                      year or mount["_params"]["year"])
+        report = shade.build_report(mount["_params"], mount, mount["_design"],
+                                    analysis, year or mount["_params"]["year"])
+    except Exception as ex:  # noqa: BLE001
+        return jsonify({"ok": False, "errors": ["报告生成失败: %s" % ex]}), 500
+    payload = json.dumps(report, ensure_ascii=False, indent=2)
+    return Response(
+        payload, mimetype="application/json",
+        headers={"Content-Disposition":
+                 "attachment; filename=mount_report_m%d.json" % mid})
+
+
+def _mount_from_body(body):
+    """已保存安装点：body['mount_id']；或携带内联轮廓 body['mount'] + params/design_id。"""
+    if body.get("mount_id"):
+        mount, err = _get_mount_or_err(int(body["mount_id"]))
+        return (mount, None) if mount is not None else (None, err)
+    if body.get("mount") and (body.get("design_id") or body.get("params")):
+        mount_in, errors = shade.normalize_mount_payload(body["mount"])
+        if errors:
+            return None, (jsonify({"ok": False, "errors": errors}), 400)
+        # 请求携带 params 时以当前界面参数为准；否则回退到已保存版本的参数
+        if body.get("params"):
+            p, errs = parse_params(body.get("params", {}))
+            if errs:
+                return None, (jsonify({"ok": False, "errors": errs}), 400)
+        else:
+            _design, p = _load_design_params(int(body["design_id"]))
+            if p is None:
+                return None, (jsonify({"ok": False,
+                                       "errors": ["设计版本不存在"]}), 404)
+        mount_in["_params"] = p
+        mount_in["_design"] = None
+        return mount_in, None
+    return None, (jsonify({"ok": False,
+                           "errors": ["缺少安装点（mount_id 或 mount 数据）"]}), 400)
 
 
 # ---------------------------------------------------------------- 现场校准

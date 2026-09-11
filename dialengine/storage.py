@@ -38,6 +38,16 @@ CREATE TABLE IF NOT EXISTS cal_observations (
     note TEXT DEFAULT '',
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mount_points (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    design_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    note TEXT DEFAULT '',
+    az_ref TEXT DEFAULT 'south',
+    data_json TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 FIELDS = ["lat", "lng", "tz", "dst", "az", "inc", "width", "height",
@@ -100,6 +110,7 @@ def save_design(name, params, note="", did=None, parent_id=None, origin="manual"
 def delete_design(did):
     with _conn() as c:
         c.execute("DELETE FROM designs WHERE id=?", (did,))
+        c.execute("DELETE FROM mount_points WHERE design_id=?", (did,))
 
 
 def diff_designs(id_a, id_b):
@@ -228,3 +239,77 @@ def update_observation(oid, fields):
 def delete_observation(oid):
     with _conn() as c:
         c.execute("DELETE FROM cal_observations WHERE id=?", (oid,))
+
+
+# ---------------------------------------------------------------- 安装点（遮光分析）
+
+def _mount_row(r):
+    m = dict(r)
+    data = json.loads(m.pop("data_json"))
+    m["note"] = m.get("note") or data.get("note", "")
+    m["az_ref"] = m.get("az_ref") or data.get("az_ref", "south")
+    m["profiles"] = data.get("profiles", [])
+    return m
+
+
+def list_mounts(design_id):
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, design_id, name, note, az_ref, data_json, created_at, updated_at "
+            "FROM mount_points WHERE design_id=? ORDER BY created_at, id",
+            (design_id,)).fetchall()
+    return [_mount_row(r) for r in rows]
+
+
+def get_mount(mid):
+    with _conn() as c:
+        row = c.execute(
+            "SELECT id, design_id, name, note, az_ref, data_json, created_at, updated_at "
+            "FROM mount_points WHERE id=?", (mid,)).fetchone()
+    return _mount_row(row) if row else None
+
+
+def save_mount(design_id, mount, mid=None):
+    """新增或更新安装点；更新时按 id 行写入，不影响其它行（复制后编辑互不覆盖）。"""
+    now = time.time()
+    data = {"note": mount.get("note", ""), "az_ref": mount.get("az_ref", "south"),
+            "profiles": mount.get("profiles", [])}
+    dj = json.dumps(data, ensure_ascii=False)
+    with _conn() as c:
+        if mid is None:
+            cur = c.execute(
+                "INSERT INTO mount_points (design_id, name, note, az_ref, data_json, "
+                "created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+                (design_id, mount["name"], data["note"], data["az_ref"], dj, now, now))
+            return cur.lastrowid
+        cur = c.execute(
+            "UPDATE mount_points SET name=?, note=?, az_ref=?, data_json=?, updated_at=? "
+            "WHERE id=? AND design_id=?",
+            (mount["name"], data["note"], data["az_ref"], dj, now, mid, design_id))
+        if cur.rowcount == 0:
+            return None
+        return mid
+
+
+def duplicate_mount(mid, new_name=None):
+    """复制安装点（深拷贝轮廓样点），生成新行；返回新 id。"""
+    src = get_mount(mid)
+    if src is None:
+        return None
+    import copy
+    now = time.time()
+    data = {"note": src.get("note", ""), "az_ref": src.get("az_ref", "south"),
+            "profiles": copy.deepcopy(src.get("profiles", []))}
+    dj = json.dumps(data, ensure_ascii=False)
+    name = new_name or (src["name"] + "·副本")
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO mount_points (design_id, name, note, az_ref, data_json, "
+            "created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+            (src["design_id"], name, data["note"], data["az_ref"], dj, now, now))
+        return cur.lastrowid
+
+
+def delete_mount(mid):
+    with _conn() as c:
+        c.execute("DELETE FROM mount_points WHERE id=?", (mid,))

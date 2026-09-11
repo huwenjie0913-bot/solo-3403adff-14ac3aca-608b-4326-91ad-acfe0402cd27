@@ -175,3 +175,29 @@ def sun_vector_enu(dt, lat, lon):
     # 西向分量 = -E，南向分量 = -N，故 atan2(-E, -N)。
     az = math.atan2(-e, -n_)
     return e, n_, up, alt, az
+
+
+def sun_position_fast(dt, lat, lon):
+    """sun_vector_enu 的热循环版本：只算一次黄经与儒略日。
+
+    返回 (e, n, u, alt, az, decl, gmst_rad)，角度均为弧度，约定同 sun_vector_enu。
+    """
+    app_long, decl, _ml = solar_longitude(dt)
+    gst = gmst_rad(dt)
+    lst = gst + lon * DEG
+    ra = math.atan2(
+        math.cos(23.4397 * DEG) * math.sin(app_long * DEG),
+        math.cos(app_long * DEG))
+    h = lst - ra
+    latr = lat * DEG
+    sh, ch = math.sin(h), math.cos(h)
+    sd, cd = math.sin(decl), math.cos(decl)
+    sl, cl = math.sin(latr), math.cos(latr)
+    e = -cd * sh
+    n_ = cl * sd - sl * cd * ch
+    up = sl * sd + cl * cd * ch
+    norm = math.sqrt(e * e + n_ * n_ + up * up)
+    e, n_, up = e / norm, n_ / norm, up / norm
+    alt = math.asin(max(-1.0, min(1.0, up)))
+    az = math.atan2(-e, -n_)
+    return e, n_, up, alt, az, decl, gst

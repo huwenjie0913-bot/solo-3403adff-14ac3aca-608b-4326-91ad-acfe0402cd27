@@ -34,6 +34,15 @@
     showCorrected: false, // 叠加校正后盘面
   };
 
+  // 安装点遮光：被遮挡影端轨迹叠加
+  const shadeState = {
+    show: false,
+    mountId: null,
+    trace: null,         // 全年被遮挡影端点
+    month: null,         // 仅显示某月（null=全年）
+    highlightDetail: null,
+  };
+
   const FIT_PARAMS = [
     { key: "az", label: "方位 °" },
     { key: "inc", label: "倾角 °" },
@@ -127,6 +136,7 @@
     renderWarnings();
     renderInfo();
     schedulePreview(true);
+    if (window.SundialShade) window.SundialShade.onParamsChanged();
   }
 
   function setStatus(t) { $("status").textContent = t; }
@@ -293,6 +303,16 @@
 
     // 影端预览（越界时仍要显示：放在裁剪层外）
     renderPreviewShadow(wg, clipped);
+
+    // 被遮挡影端轨迹（遮光分析结果叠加）
+    if (shadeState.show && shadeState.trace) {
+      const g4 = el("g", {}, clipped);
+      for (const q of shadeState.trace) {
+        if (shadeState.month && q.month !== shadeState.month) continue;
+        el("circle", { cx: q.uv[0], cy: -q.uv[1], r: 1.1,
+          class: "blocked-trace" }, g4);
+      }
+    }
 
     // 校正后盘面预览（虚线时线 + 校正根点）
     if (cal.showCorrected && cal.corrected) {
@@ -511,6 +531,7 @@
     state.year = parseInt($("year").value, 10);
     scheduleCompute();
     schedulePreview(true);
+    if (window.SundialShade) window.SundialShade.onYearChanged();
   });
 
   document.querySelectorAll(".presets button").forEach((b) =>
@@ -791,6 +812,10 @@
     $("calBatchInfo").textContent = "";
     if (id) refreshBatches();
     if (state.data) render();
+    // 同步安装点遮光模块
+    shadeState.trace = null;
+    shadeState.mountId = null;
+    if (window.SundialShade) window.SundialShade.setDesign(id);
   }
 
   async function refreshBatches(selectId) {
@@ -1231,10 +1256,22 @@
     if (state.data) render();
   });
 
+  // 遮光影端轨迹叠加
+  $("toggleShade").addEventListener("click", (e) => {
+    if (!shadeState.trace) {
+      alert("请先在「方位高度图 / 可读分析」中对某个安装点执行全年分析");
+      return;
+    }
+    shadeState.show = !shadeState.show;
+    e.target.classList.toggle("active", shadeState.show);
+    render();
+  });
+
   // ------------------------------------------------------------ 初始化
   writeInputs(state.params);
   $("dateSlider").value = state.doy;
   $("timeSlider").value = state.minute;
+  $("viewSkyBtn").disabled = true;
   window.addEventListener("resize", () => {
     const wg = $("worldGroup");
     if (wg) wg.setAttribute("transform", viewTransform());
@@ -1242,4 +1279,19 @@
   });
   refreshDesigns();
   doCompute();
+
+  // 供遮光模块读取当前设计上下文
+  window.Sundial = {
+    getParams: () => state.params,
+    getYear: () => state.year,
+    getDesignId: () => cal.designId,
+    getDesignName: () => cal.designName,
+    setBlockedTrace(mountId, trace) {
+      shadeState.mountId = mountId;
+      shadeState.trace = trace;
+      shadeState.show = true;
+      $("toggleShade").classList.add("active");
+      render();
+    },
+  };
 })();
